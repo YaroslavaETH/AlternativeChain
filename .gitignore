@@ -1,6 +1,9 @@
 # Node / Bun
 node_modules/
 
+#lib
+lib/openzeppelin-contracts/
+
 # Foundry
 # Compiler files
 cache/
