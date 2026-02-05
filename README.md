@@ -1,8 +1,10 @@
 Для работы требуется файл .env c данными
-BNB_RPC_URL=""
+BSC_RPC_URL=""
 POLYGON_RPC_URL=""
 ETHERSCAN_API_KEY=""
 PRIVATE_KEY=""
+// для скрипта bridge
+PRIVATE_KEY_CLIENT=""
 
 для установки используемой библиотеки перед запуском тестов необходимо выполнить команду:
 forge install OpenZeppelin/openzeppelin-contracts

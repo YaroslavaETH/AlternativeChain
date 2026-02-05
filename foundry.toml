@@ -6,9 +6,9 @@ libs = ["lib"]
 optimizer = true
 
 [rpc_endpoints]
-bnb = "${BNB_RPC_URL}"
+bsc = "${BSC_RPC_URL}"
 polygon = "${POLYGON_RPC_URL}"
 
 [etherscan]
-bnb = { key = "${ETHERSCAN_API_KEY}" }
+bsc = { key = "${ETHERSCAN_API_KEY}" }
 polygon = { key = "${ETHERSCAN_API_KEY}" }
