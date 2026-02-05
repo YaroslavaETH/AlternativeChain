@@ -7,8 +7,8 @@ import IERC20Json from '../abi/IERC20.json' assert { type: 'json' };
 // Импортируем dotenv для загрузки переменных окружения из файла .env
 import 'dotenv/config';
 
-const BRIDGE_BSC_ADDR = "0x0CD517ba2C211BB1bA3a33CC959FF8764EaE39af" as Address;
-const BRIDGE_POL_ADDR = "0xa2a00beCACd814DfaE89545c7109998F7fd87FB4" as Address;
+const BRIDGE_BSC_ADDR = "0x768e550f12ab040bc2A5EC86Ac6335B3396F4975" as Address;
+const BRIDGE_POL_ADDR = "0x0CD517ba2C211BB1bA3a33CC959FF8764EaE39af" as Address;
 const TOKEN_BSC_ADDR = "0xa2a00beCACd814DfaE89545c7109998F7fd87FB4" as Address;
 const TOKEN_POL_ADDR = "0x48d6336828Cf62e5765885192e588cbCA7465532" as Address;
 

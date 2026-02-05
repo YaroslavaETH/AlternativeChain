@@ -25,7 +25,7 @@ contract Bridge is Ownable {
         emit BridgeLock(msg.sender, amount, block.timestamp);
     }
 
-    function unlock(address user, uint256 amount) external {
+    function unlock(address user, uint256 amount) external onlyOwner {
         (bool result) = token.transfer(user, amount);
         if(!result)
             revert TransferToFalse(user, amount, block.timestamp);
