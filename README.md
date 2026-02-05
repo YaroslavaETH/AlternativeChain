@@ -1,3 +1,13 @@
+Для работы требуется файл .env c данными
+BNB_RPC_URL=""
+POLYGON_RPC_URL=""
+ETHERSCAN_API_KEY=""
+PRIVATE_KEY=""
+
+для установки используемой библиотеки перед запуском тестов необходимо выполнить команду:
+forge install OpenZeppelin/openzeppelin-contracts
+
+
 ## Foundry
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
