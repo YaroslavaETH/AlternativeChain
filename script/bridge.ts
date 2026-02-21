@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, Abi, Address, parseEther } from "viem";
+import { createPublicClient, createWalletClient, http, Abi, Address, parseEther, formatEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { bscTestnet, polygonAmoy } from "viem/chains";
 // Используем стандартный импорт JSON с `assert { type: 'json' }`
@@ -7,22 +7,24 @@ import IERC20Json from '../abi/IERC20.json' assert { type: 'json' };
 // Импортируем dotenv для загрузки переменных окружения из файла .env
 import 'dotenv/config';
 
-const BRIDGE_BSC_ADDR = "0x768e550f12ab040bc2A5EC86Ac6335B3396F4975" as Address;
-const BRIDGE_POL_ADDR = "0x0CD517ba2C211BB1bA3a33CC959FF8764EaE39af" as Address;
-const TOKEN_BSC_ADDR = "0xa2a00beCACd814DfaE89545c7109998F7fd87FB4" as Address;
-const TOKEN_POL_ADDR = "0x48d6336828Cf62e5765885192e588cbCA7465532" as Address;
+const BRIDGE_BSC_ADDR = "0x0A8F04D29977f58FC452c69f115fd598C4B0bf6d" as Address;
+const BRIDGE_POL_ADDR = "0x9decfb688cc336442a581d280e748a0909348a45" as Address;
+const TOKEN_BSC_ADDR = "0x47728C8FC6FcE22aB0b939F28345A84c26f0178d" as Address;
+const TOKEN_POL_ADDR = "0x768e550f12ab040bc2a5ec86ac6335b3396f4975" as Address;
 
 // Проверяем, что приватный ключ существует в .env
 if (!process.env.PRIVATE_KEY || !process.env.PRIVATE_KEY_CLIENT) {
     throw new Error("PRIVATE_KEY или PRIVATE_KEY_CLIENT не найдены в файле .env");
 }
 
-// viem ожидает, что приватный ключ будет в формате 0x...
-// Добавляем '0x' к ключам из .env, если префикс отсутствует, чтобы гарантировать правильный формат.
-const ownerKey = (process.env.PRIVATE_KEY.startsWith('0x') ? process.env.PRIVATE_KEY : `0x${process.env.PRIVATE_KEY}`) as Address;
-const clientKey = (process.env.PRIVATE_KEY_CLIENT.startsWith('0x') ? process.env.PRIVATE_KEY_CLIENT : `0x${process.env.PRIVATE_KEY_CLIENT}`) as Address;
+const ownerKey = (process.env.PRIVATE_KEY.startsWith('0x')
+    ? process.env.PRIVATE_KEY
+    : `0x${process.env.PRIVATE_KEY}`) as `0x${string}`;
 
-// Создаем аккаунт из приватного ключа
+const clientKey = (process.env.PRIVATE_KEY_CLIENT.startsWith('0x')
+    ? process.env.PRIVATE_KEY_CLIENT
+    : `0x${process.env.PRIVATE_KEY_CLIENT}`) as `0x${string}`;
+
 const accountOwner = privateKeyToAccount(ownerKey);
 const accountClient = privateKeyToAccount(clientKey);
 
@@ -61,6 +63,39 @@ const walletClientPOL = createWalletClient({
 });
 
 // =================================================================================================
+// Вспомогательные функции
+// =================================================================================================
+
+/**
+ * Получает публичный клиент, соответствующий сети кошелька.
+ */
+function getPublicClientForWallet(
+    walletClient: ReturnType<typeof createWalletClient>
+): ReturnType<typeof createPublicClient> {
+    if (walletClient.chain?.id === bscTestnet.id) return publicClientBSC;
+    if (walletClient.chain?.id === polygonAmoy.id) return publicClientPOL;
+    throw new Error(`Нет публичного клиента для сети: ${walletClient.chain?.name}`);
+}
+
+/**
+ * Проверяет баланс нативной валюты (для оплаты газа).
+ * Выбрасывает ошибку, если баланс равен нулю.
+ */
+async function checkNativeBalance(
+    publicClient: ReturnType<typeof createPublicClient>,
+    address: Address,
+    chainName: string
+): Promise<void> {
+    const balance = await publicClient.getBalance({ address });
+    console.log(`  Баланс нативной валюты (${chainName}): ${formatEther(balance)} (для оплаты газа)`);
+    if (balance === 0n) {
+        throw new Error(
+            `Недостаточно нативной валюты на счете ${address} в сети ${chainName}.\n`
+        );
+    }
+}
+
+// =================================================================================================
 // Функции отправки от имени пользователя
 // =================================================================================================
 
@@ -72,38 +107,67 @@ async function sendTokens(
     walletClient: ReturnType<typeof createWalletClient>,
     bridgeFrom: Address,
     tokenFrom: Address,
-    amount: bigint // Количество токенов для блокировки
+    amount: bigint
 ) {
+    const publicClient = getPublicClientForWallet(walletClient);
+    const chainName = walletClient.chain?.name ?? "Unknown";
+    const senderAddress = walletClient.account?.address as Address;
 
+    // --- Предварительная проверка баланса ---
+    console.log(`\n[${chainName}] Проверка балансов для ${senderAddress}...`);
+    await checkNativeBalance(publicClient, senderAddress, chainName);
+
+    const tokenBalance = await publicClient.readContract({
+        abi: IERC20Json.abi as Abi,
+        address: tokenFrom,
+        functionName: "balanceOf",
+        args: [senderAddress]
+    }) as bigint;
+    console.log(`  Баланс токенов: ${formatEther(tokenBalance)}`);
+
+    if (tokenBalance < amount) {
+        throw new Error(
+            `Недостаточно токенов. Нужно: ${formatEther(amount)}, доступно: ${formatEther(tokenBalance)}`
+        );
+    }
+
+    // --- Approve ---
     try {
-        console.log(`[${walletClient.chain.name}] Шаг 1: Отправка транзакции approve от клиента ${walletClient.account.address}...`);
+        console.log(`\n[${chainName}] Шаг 1: Отправка транзакции approve...`);
+
         const approveHash = await walletClient.writeContract({
             abi: IERC20Json.abi as Abi,
             address: tokenFrom,
             functionName: "approve",
             args: [bridgeFrom, amount]
         });
-        console.log(`Транзакция approve успешно отправлена! Хэш: ${approveHash}`);
-    }
-    catch (error) {
-        console.error("Ошибка при отправке транзакции approve:", error);
-        throw new Error(`Ошибка при отправке транзакции approve: ${error}`);
+        console.log(`  Транзакция approve отправлена! Хэш: ${approveHash}`);
+
+        // Ждём подтверждения перед следующим шагом
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        console.log(`  Approve подтверждён.`);
+    } catch (error) {
+        console.error("Ошибка при approve:", error);
+        throw new Error(`Ошибка при approve: ${error}`);
     }
 
+    // --- Lock ---
     try {
-        console.log(`[${walletClient.chain.name}] Шаг 2: Отправка транзакции lock от клиента ${walletClient.account.address}...`);
+        console.log(`[${chainName}] Шаг 2: Отправка транзакции lock...`);
+
         const lockHash = await walletClient.writeContract({
             abi: BridgeJson.abi as Abi,
             address: bridgeFrom,
             functionName: "lock",
             args: [amount]
         });
-        console.log(`Транзакция lock успешно отправлена! Хэш: ${lockHash}`);
-        console.log(`Токены успешно заблокированы. Ожидайте их появления в целевой сети.`);
-    }
-    catch (error) {
-        console.error("Ошибка при отправке транзакции lock:", error);
-        throw new Error(`Ошибка при отправке транзакции lock: ${error}`);
+        console.log(`  Транзакция lock отправлена! Хэш: ${lockHash}`);
+
+        await publicClient.waitForTransactionReceipt({ hash: lockHash });
+        console.log(`  Lock подтверждён. Токены успешно заблокированы!`);
+    } catch (error) {
+        console.error("Ошибка при lock:", error);
+        throw new Error(`Ошибка при lock: ${error}`);
     }
 }
 
@@ -119,10 +183,15 @@ async function startListener(
     publicClientFrom: ReturnType<typeof createPublicClient>,
     bridgeFrom: Address,
     bridgeTo: Address,
-    walletOwnerTo: ReturnType<typeof createWalletClient> // Кошелек владельца для вызова unlock
+    walletOwnerTo: ReturnType<typeof createWalletClient>
 ) {
-    console.log(`Запущен для сети ${publicClientFrom.chain.name}. Ожидание событий BridgeLock на адресе ${bridgeFrom}...`);
-    
+    const fromChain = publicClientFrom.chain?.name ?? "Unknown";
+    const toChain = walletOwnerTo.chain?.name ?? "Unknown";
+    console.log(`Слушатель запущен: ${fromChain} → ${toChain}`);
+    console.log(`Ожидание событий BridgeLock на адресе ${bridgeFrom}...`);
+
+    const publicClientTo = getPublicClientForWallet(walletOwnerTo);
+
     publicClientFrom.watchContractEvent({
         abi: BridgeJson.abi as Abi,
         address: bridgeFrom,
@@ -131,25 +200,27 @@ async function startListener(
             for (const log of logs) {
                 // Проверяем, что аргументы существуют, прежде чем их использовать
                 if (!log.args?.user || !log.args?.amount) {
-                    console.error("Событие не содержит необходимых аргументов:", log);
+                    console.error("Событие без нужных аргументов:", log);
                     continue;
                 }
 
-                const { user, amount: lockedAmount } = log.args;
-                console.log(`Обнаружено событие BridgeLock в сети ${publicClientFrom.chain.name}: Пользователь ${user} заблокировал ${lockedAmount} токенов.`);
+                const { user, amount: lockedAmount } = log.args as { user: Address; amount: bigint };
+                console.log(`Событие BridgeLock: пользователь ${user} заблокировал ${formatEther(lockedAmount)} токенов в ${fromChain}`);
 
                 try {
-                    console.log(`Отправляем транзакцию unlock в сеть ${walletOwnerTo.chain.name}...`);
+                    console.log(`Отправляем unlock в ${toChain}...`);
                     const hash = await walletOwnerTo.writeContract({
-                        abi: BridgeJson.abi as Abi, // Используем полный ABI моста
+                        abi: BridgeJson.abi as Abi,
                         address: bridgeTo,
                         functionName: "unlock",
-                        args: [user, lockedAmount] // Используем сумму из события, а не общую
+                        args: [user, lockedAmount]
                     });
-                    console.log(`Транзакция unlock успешно отправлена! Хэш: ${hash}`);
-                }
-                catch (error) {
-                    console.error("Ошибка при отправке транзакции unlock:", error);
+                    console.log(`  Unlock отправлен! Хэш: ${hash}`);
+
+                    await publicClientTo.waitForTransactionReceipt({ hash });
+                    console.log(`  Unlock подтверждён. Пользователь ${user} получил токены в ${toChain}.`);
+                } catch (error) {
+                    console.error("Ошибка при unlock:", error);
                 }
             }
         }
@@ -162,11 +233,11 @@ async function startListener(
 
 // --- Функции для пользователя ---
 async function sendFromBscToPol() {
-    await sendTokens(walletClientBSC, BRIDGE_BSC_ADDR, TOKEN_BSC_ADDR, parseEther("10"));
+    await sendTokens(walletClientBSC, BRIDGE_BSC_ADDR, TOKEN_BSC_ADDR, parseEther("11"));
 }
 
 async function sendFromPolToBsc() {
-    await sendTokens(walletClientPOL, BRIDGE_POL_ADDR, TOKEN_POL_ADDR, parseEther("10"));
+    await sendTokens(walletClientPOL, BRIDGE_POL_ADDR, TOKEN_POL_ADDR, parseEther("11"));
 }
 
 // --- Функции для владельца моста (релеера) ---
@@ -180,20 +251,20 @@ async function listenPolEvents() {
     await startListener(publicClientPOL, BRIDGE_POL_ADDR, BRIDGE_BSC_ADDR, walletOwnerBSC);
 }
 
-
 // --- Точка входа ---
 async function main() {
-    console.log("Скрипт запущен. Раскомментируйте нужную функцию для выполнения действия.");
-    // --- Для пользователя  ---
-    // await sendFromBscToPol();
+    console.log("Скрипт запущен.");
+
+    // --- Для пользователя ---
+    await sendFromBscToPol();
     // await sendFromPolToBsc();
 
-    // --- Для моста получателя ---
-     await listenBscEvents();
+    // --- Для релеера ---
+    // await listenBscEvents();
     // await listenPolEvents();
 }
 
 main().catch(error => {
-    console.error("Произошла критическая ошибка:", error);
+    console.error("Критическая ошибка:", error);
     process.exit(1);
 });
